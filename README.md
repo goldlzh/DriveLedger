@@ -1,0 +1,49 @@
+# C盘空间账本
+
+记录 C 盘实际占用变化，按实际分配空间解释目录与文件增长。查看器为中文普通权限桌面应用，采集由独立 Windows 服务完成。仅支持 Windows x64 / C 盘 NTFS。
+
+## 安装与日常使用
+
+1. 将完整发布文件夹解压到一个独立目录，双击 `安装.cmd`。安装会请求一次管理员权限。
+2. 默认程序位置 `D:\CDriveSpaceMonitor\App`，数据位置 `D:\CDriveSpaceMonitor\Data`。D 盘不可用时停止，绝不改用 C 盘。
+3. 安装后从桌面“C盘空间账本”打开普通权限界面。服务开机自动采集，安装账户登录后自动启动托盘。
+4. 首次索引先建立基准，已有文件不计为新增。索引期间磁盘采样独立进行。生产默认整盘采样60秒、日志轮询5秒、每天核对一次。
+5. 选择单日或日期区间，查看真实比较起止时间。双击目录下钻；“整盘目录”返回。文件页选择一行显示原路径、硬链接、分配/逻辑大小及上次观测时刻。点击列标题可排序。
+6. 关闭窗口会隐藏到托盘；托盘右键可退出查看器，采集服务仍继续。暂停、恢复、手动核对需要后台服务可连接。
+
+磁盘净变化减去已归因文件净变化得到尚未归因差额。缺样本时显示“未知”，不会用零代替。目录包含子目录，父子不可累加；目录净变化含迁入迁出，整盘文件净变化不含迁移。目录排名显示最多5000行、文件显示最多5000行，CSV 导出当前查询的全部结果。CSV 使用 UTF-8 BOM，保护公式前缀并正确转义逗号、引号和换行。
+
+采集缺口保留真实时间，不平均分摊到缺失日期。趋势在超过2分钟的样本缺口处断开。文件明细保留30天，目录总账/磁盘样本保留365天。`降级运行`表示活动文件连续性等受损，即使基准已就绪也可能覆盖不全；手动核对不能证明消除此类历史缺口。“创建证据补齐”是在后来的实际观测时刻确认最初已知分配，并非回写历史。
+
+## 升级与卸载
+
+升级前退出托盘查看器，从新的独立发布文件夹再次运行安装。安装先验证受保护的产品/路径/安装账户记录和所有目标，再停止并移除旧服务，随后以新文件原子替换载荷并重新启动；不要从已安装的 App 文件夹运行升级。数据文件和既有 ACL 完整保留。安装不会清理旧版本多余文件。仅凭旧版数据标记或伪造 JSON 不能接管已有目录；缺少可信新版安装记录时会停止。产品目录有无关同级文件时也会停止，不改其权限。
+
+双击发布包里的 `卸载.cmd`，或运行安装目录程序 `--uninstall`。只移除本产品服务、登录入口、桌面快捷方式及安装记录中的程序文件，保留整个 Data 文件夹。运行中的卸载程序本身会保留，退出后可手动删除 App 文件夹。请使用安装账户卸载，确保其用户注册表已加载。安装中途失败时保留现场和错误；受保护记录完整时可从原发布包重试，记录缺失或不一致时停止，需管理员先检查本产品现场。未提供事务回滚。
+
+程序和数据目录均只有 SYSTEM/管理员可写，安装账户只读执行。安装记录保存在受保护的产品目录和 App 中，不使用可写 Data 标记授权覆盖。正式安装数据目录必须是 `D:\CDriveSpaceMonitor` 下独立于 App 的同级目录；隔离测试仍可指定独立路径。管道只允许本机安装账户、SYSTEM和管理员。安装账户 SID 随服务参数显式保存，不采用 SYSTEM 身份代替。普通启动从不提权，也不会创建缺失的数据库。
+
+采集写入连接保留 SQLite WAL/SHM 辅助文件，让后台服务停止后普通账户仍可只读查看。请勿手动删除这些辅助文件；缺失时界面会明确提示启动采集服务修复，不会申请写权限或使用不安全的数据库读取选项。
+
+## 构建与诊断
+
+需要 .NET SDK 10.0.404。`pwsh -File scripts/Build.ps1 -DotnetPath <dotnet.exe绝对路径>` 运行三个测试集并自包含发布 win-x64 到 `artifacts/publish`，同时生成源码 ZIP。可用 `-OutputPath` 指定发布目录。发布包包含运行时，目标机无需安装 .NET。
+
+```powershell
+.\DriveLedger.App.exe --diagnose --output D:\ledger-status.json
+.\DriveLedger.App.exe --install --data-dir D:\CDriveSpaceMonitor\Data
+```
+
+诊断 JSON 含状态、实际时间、全量查询结果和覆盖说明；建议始终使用 `--output`，GUI 子系统进程的标准输出不适合交互控制台。
+
+隔离测试不注册服务：`scripts/Smoke.ps1` 在 `artifacts/app-smoke/<唯一编号>` 建立 C 盘测试目录、数据目录和独立管道，短时间采集后检查诊断。测试只修改自己的目录，仍采样整盘空间（不代表 fixture 独占整盘变化）。可保留现场供 GUI 查看。
+
+```powershell
+.\DriveLedger.App.exe --collect --fixture-root C:\owned\fixture --data-dir C:\owned\data --pipe DriveLedger.Fixture.unique --sample-seconds 1 --poll-seconds 0.5 --seconds 20
+.\DriveLedger.App.exe --data-dir C:\owned\data --fixture-root C:\owned\fixture --pipe DriveLedger.Fixture.unique
+.\DriveLedger.App.exe --service --owner-sid S-1-5-21-ACCOUNT-SID --data-dir C:\owned\data --fixture-root C:\owned\fixture --pipe DriveLedger.Fixture.unique --sample-seconds 1 --poll-seconds 0.5
+```
+
+`--service` 仅由 SCM 启动。`--collect` 必须指定 C 盘测试目录和非生产管道。生产管道 `DriveLedger.Control`、服务名 `CDriveSpaceMonitor`。不要将 fixture 界面连接生产管道。短间隔仅测试模式允许。
+
+尚未测量全 C 首次扫描的耗时、CPU/内存和长期数据库增长；访问受限元数据、系统内部空间、其他数据流及短暂文件可能留在差额。不会读取文件内容、清理用户文件或创建/重置系统 USN 日志。

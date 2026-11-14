@@ -1,0 +1,38 @@
+<Window x:Class="DriveLedger.App.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="C盘空间账本" Width="1220" Height="850" MinWidth="960" MinHeight="680" Background="#F4F6F8" FontFamily="Microsoft YaHei UI" FontSize="13">
+ <Window.Resources>
+  <Style TargetType="Button"><Setter Property="Padding" Value="13,7"/><Setter Property="Margin" Value="0,0,8,0"/></Style>
+  <Style TargetType="DataGrid"><Setter Property="AutoGenerateColumns" Value="False"/><Setter Property="IsReadOnly" Value="True"/><Setter Property="CanUserAddRows" Value="False"/><Setter Property="RowHeight" Value="30"/><Setter Property="EnableRowVirtualization" Value="True"/><Setter Property="EnableColumnVirtualization" Value="True"/><Setter Property="VirtualizingPanel.IsVirtualizing" Value="True"/><Setter Property="VirtualizingPanel.VirtualizationMode" Value="Recycling"/><Setter Property="GridLinesVisibility" Value="Horizontal"/><Setter Property="HeadersVisibility" Value="Column"/></Style>
+ </Window.Resources>
+ <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="135"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+ <DockPanel><TextBlock Text="C盘空间账本" FontSize="26" FontWeight="SemiBold"/><TextBlock Text="每日新增占用 · 实际分配空间" Foreground="#586575" VerticalAlignment="Center" Margin="20,0,0,0"/></DockPanel>
+ <StackPanel Grid.Row="1" Margin="0,14,0,12">
+  <WrapPanel><TextBlock Text="起始日期" VerticalAlignment="Center" Margin="0,0,8,0"/><DatePicker x:Name="FromDate" Width="145"/><TextBlock Text="至" Margin="12,0" VerticalAlignment="Center"/><DatePicker x:Name="ToDate" Width="145" Margin="0,0,15,0"/><Button Content="查询 / 刷新" Click="RefreshClick"/><Button Content="今天" Click="TodayClick"/><Button Content="近7天" Click="WeekClick"/><Button Content="导出 CSV" Click="ExportClick"/></WrapPanel>
+  <TextBlock x:Name="StatusText" TextWrapping="Wrap" Margin="0,10,0,3" Foreground="#304860"/>
+  <TextBlock x:Name="WindowText" TextWrapping="Wrap" Foreground="#586575"/>
+ </StackPanel>
+ <Border Grid.Row="2" Background="White" Padding="16" CornerRadius="5"><UniformGrid Columns="4">
+  <StackPanel><TextBlock Text="磁盘实际净变化" Foreground="#586575"/><TextBlock x:Name="DiskTotal" FontSize="23" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+  <StackPanel><TextBlock Text="已归因文件净变化" Foreground="#586575"/><TextBlock x:Name="FileTotal" FontSize="23" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+  <StackPanel><TextBlock Text="尚未归因差额" Foreground="#586575"/><TextBlock x:Name="UnknownTotal" FontSize="23" FontWeight="SemiBold" Margin="0,5,0,0"/></StackPanel>
+  <StackPanel><TextBlock Text="文件增加 / 释放" Foreground="#586575"/><TextBlock x:Name="GrossTotal" FontSize="18" Margin="0,8,0,0"/></StackPanel>
+ </UniformGrid></Border>
+ <Border Grid.Row="3" Background="White" Padding="12" Margin="0,10"><Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions><TextBlock x:Name="TrendLabel" Text="整盘已用空间趋势（缺口处断开）" Foreground="#586575"/><Canvas Grid.Row="1" x:Name="Trend" ClipToBounds="True" SizeChanged="TrendSizeChanged"/></Grid></Border>
+ <TabControl Grid.Row="4">
+  <TabItem Header="目录增长排行"><Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+   <DockPanel Margin="0,0,0,10"><Button Content="整盘目录" Click="RootClick"/><TextBlock x:Name="FolderText" Text="双击目录下钻。目录包含子目录，不可累加；净变化含迁移。" TextWrapping="Wrap" VerticalAlignment="Center"/></DockPanel>
+   <DataGrid Grid.Row="1" x:Name="Folders" MouseDoubleClick="DrillClick"><DataGrid.Columns>
+    <DataGridTextColumn Header="目录（双击查看）" Binding="{Binding Path}" Width="*" MinWidth="280"/><DataGridTextColumn Header="净变化" Binding="{Binding Net}" SortMemberPath="NetBytes" Width="105"/><DataGridTextColumn Header="增加" Binding="{Binding Added}" SortMemberPath="AddedBytes" Width="100"/><DataGridTextColumn Header="释放" Binding="{Binding Released}" SortMemberPath="ReleasedBytes" Width="100"/><DataGridTextColumn Header="迁入" Binding="{Binding In}" SortMemberPath="InBytes" Width="100"/><DataGridTextColumn Header="迁出" Binding="{Binding Out}" SortMemberPath="OutBytes" Width="100"/>
+   </DataGrid.Columns></DataGrid>
+  </Grid></TabItem>
+  <TabItem Header="文件变化明细"><Grid Margin="10"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="85"/></Grid.RowDefinitions>
+   <TextBlock x:Name="DetailText" Margin="0,0,0,8" TextWrapping="Wrap"/>
+   <DataGrid Grid.Row="1" x:Name="Files" SelectionChanged="FileSelected"><DataGrid.Columns>
+    <DataGridTextColumn Header="路径（点击看完整详情）" Binding="{Binding Path}" Width="*" MinWidth="250"/><DataGridTextColumn Header="类型" Binding="{Binding Kind}" Width="115"/><DataGridTextColumn Header="增加" Binding="{Binding Added}" SortMemberPath="AddedBytes" Width="100"/><DataGridTextColumn Header="释放" Binding="{Binding Released}" SortMemberPath="ReleasedBytes" Width="100"/><DataGridTextColumn Header="观测时间" Binding="{Binding At}" Width="165"/><DataGridTextColumn Header="上次观测" Binding="{Binding Previous}" Width="165"/>
+   </DataGrid.Columns></DataGrid>
+   <TextBox Grid.Row="2" x:Name="FileInfo" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" Margin="0,10,0,0"/>
+  </Grid></TabItem>
+  <TabItem Header="覆盖与缺口"><TextBox x:Name="Coverage" Margin="12" IsReadOnly="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" BorderThickness="0"/></TabItem>
+ </TabControl>
+ <DockPanel Grid.Row="5" Margin="0,12,0,0"><StackPanel Orientation="Horizontal"><Button Content="暂停采集" Click="PauseClick"/><Button Content="恢复采集" Click="ResumeClick"/><Button Content="手动核对" Click="ScanClick"/></StackPanel><TextBlock Text="关闭窗口后保留托盘；后台服务独立运行。" Foreground="#586575" VerticalAlignment="Center" HorizontalAlignment="Right"/></DockPanel>
+ </Grid>
+</Window>

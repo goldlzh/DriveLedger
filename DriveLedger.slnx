@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="src/DriveLedger.App/DriveLedger.App.csproj" />
+  <Project Path="tests/DriveLedger.AppTests/DriveLedger.AppTests.csproj" />
+  <Project Path="src/DriveLedger.Windows/DriveLedger.Windows.csproj" />
+  <Project Path="tests/DriveLedger.NativeTests/DriveLedger.NativeTests.csproj" />
+  <Project Path="src/DriveLedger.Core/DriveLedger.Core.csproj" />
+  <Project Path="tests/DriveLedger.Tests/DriveLedger.Tests.csproj" />
+</Solution>
