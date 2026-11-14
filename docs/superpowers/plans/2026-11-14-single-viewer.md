@@ -37,8 +37,8 @@ Files: new src/DriveLedger.App/ViewerInstance.cs; Program.cs; MainWindow.xaml.cs
 
 ### Task 2: Release and source synchronization
 
-- [ ] Document new behavior and old-viewer exit requirement; set version1.0.1.
-- [ ] Package final self-contained software/source to the original chat outputs directory; verify CRC/entrypoints/critical DLLs.
-- [ ] Push reviewed source to existing private goldlzh/DriveLedger, verify main remote tree. Preserve local original development history.
-- [ ] Remove only owned temporary SDK/cache after all build verification, preserve output/runtime/data and any user process.
-- [ ] Deliver upgrade package and clear install/usage instructions; do not claim installed processes have new behavior before upgrade.
+- [x] Document new behavior and old-viewer exit requirement; set version1.0.1.
+- [x] Package final self-contained software/source to the original chat outputs directory; verify CRC/entrypoints/critical DLLs.
+- [x] Push reviewed source to existing private goldlzh/DriveLedger, verify main remote tree. Preserve local original development history.
+- [x] Remove only owned temporary SDK/cache after all build verification, preserve output/runtime/data and any user process.
+- [x] Deliver upgrade package and clear install/usage instructions; do not claim installed processes have new behavior before upgrade.
