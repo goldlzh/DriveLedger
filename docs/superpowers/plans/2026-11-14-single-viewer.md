@@ -1,6 +1,6 @@
 # Single Viewer Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Reopening the app restores the existing viewer rather than adding windows/tray icons.
 
@@ -29,11 +29,11 @@
 
 Files: new src/DriveLedger.App/ViewerInstance.cs; Program.cs; MainWindow.xaml.cs; new tests/DriveLedger.AppTests/SingleInstanceTests.cs; test Program.cs.
 
-- [ ] Restore pinned SDK and run baseline App23/23.
-- [ ] Add real cross-process test-host cases: one owner and secondary callback; many simultaneous clients; delayed listener startup; graceful exit/reopen; owner termination/reopen; scope independence and production-key independence from data directory. Run against a minimal unimplemented shape and observe intended RED failures.
-- [ ] Implement mutex/pipe lifetime, bounded requests, foreground grant and disposal. Wire only GUI startup, before Application/MainWindow. Reuse window Open on Dispatcher.
-- [ ] Run App suite GREEN and publish/build; run all existing Core/Native suites once on changed product and fixture smoke. No test UI manipulation of the user's running windows.
-- [ ] Fresh read-only review of this feature diff, address material findings with regressions.
+- [x] Restore pinned SDK and run baseline App23/23.
+- [x] Add real cross-process test-host cases: one owner and secondary callback; many simultaneous clients; delayed listener startup; graceful exit/reopen; owner termination/reopen; scope independence and production-key independence from data directory. Run against a minimal unimplemented shape and observe intended RED failures.
+- [x] Implement mutex/pipe lifetime, bounded requests, foreground grant and disposal. Wire only GUI startup, before Application/MainWindow. Reuse window Open on Dispatcher.
+- [x] Run App suite GREEN and publish/build; run all existing Core/Native suites once on changed product and fixture smoke. No test UI manipulation of the user's running windows.
+- [x] Fresh read-only review of this feature diff, address material findings with regressions.
 
 ### Task 2: Release and source synchronization
 
