@@ -2,6 +2,12 @@ using DriveLedger.App;
 using DriveLedger.Core;
 using System.Security.Principal;
 
+if (SingleInstanceTests.IsHost(args))
+{
+    try { return SingleInstanceTests.RunHost(args); }
+    catch (Exception error) { Console.Error.WriteLine(error); return 3; }
+}
+
 var root = Path.GetFullPath(Path.Combine("artifacts", "app-tests", Guid.NewGuid().ToString("N")));
 Directory.CreateDirectory(root);
 int passed = 0, total = 0;
@@ -78,5 +84,6 @@ Check("installer never takes ownership of system or unrelated populated data", (
 });
 FixRoundTests.Run(root, Check, Assert);
 UpgradeLifetimeTests.Run(root, Check, Assert);
+SingleInstanceTests.Run(root, Check, Assert);
 Console.WriteLine($"{passed}/{total} passed");
 return passed == total ? 0 : 1;

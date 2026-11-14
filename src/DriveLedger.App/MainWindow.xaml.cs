@@ -43,7 +43,7 @@ public partial class MainWindow : Window
         timer.Tick += async (_, _) => { if (IsVisible) await RefreshAsync(); };
         Loaded += async (_, _) => { timer.Start(); await RefreshAsync(); };
     }
-    void Open() { Show(); WindowState = WindowState.Normal; Activate(); }
+    internal void Open() { Show(); WindowState = WindowState.Normal; Activate(); }
     async Task RefreshAsync()
     {
         var version = ++requestVersion;

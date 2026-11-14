@@ -27,7 +27,16 @@ public static class Program
                     var report = Viewer.Read(options.DataDir, DateTimeOffset.Now.AddDays(-30), DateTimeOffset.Now);
                     WriteJson(options.Output, new { Success = true, DataDirectory = options.DataDir, DatabaseExists = report is not null, Report = report });
                     break;
-                default: new Application().Run(new MainWindow(options)); break;
+                default:
+                    using (var instance = ViewerInstance.Acquire(ViewerInstance.ScopeFor(options)))
+                    {
+                        if (!instance.IsPrimary) return instance.ActivateExisting() ? 0 : 1;
+                        var application = new Application();
+                        var window = new MainWindow(options);
+                        instance.StartListening(() => window.Dispatcher.BeginInvoke(new Action(window.Open)));
+                        application.Run(window);
+                    }
+                    break;
             }
             return 0;
         }

@@ -23,7 +23,7 @@ Get-ChildItem -LiteralPath (Join-Path $repo 'package') -File | Copy-Item -Destin
 $sourceZip = Join-Path (Split-Path $OutputPath -Parent) 'DriveLedger-source.zip'
 $files = Get-ChildItem -LiteralPath $repo -Recurse -File | Where-Object {
     $_.FullName -notmatch '[\\/](\.git|\.superpowers|artifacts|bin|obj)[\\/]' -and
-    $_.FullName -notlike "$OutputPath\*" -and $_.Extension -ne '.db'
+    $_.FullName -notlike "$OutputPath\*" -and $_.Extension -ne '.db' -and $_.Name -ne '.git'
 }
 Add-Type -AssemblyName System.IO.Compression
 $stream = [IO.File]::Open($sourceZip, [IO.FileMode]::Create)
