@@ -1,4 +1,5 @@
 using DriveLedger.Core;
+using System.Diagnostics;
 using System.ComponentModel;
 using System.Text.Json;
 
@@ -20,7 +21,8 @@ public sealed class Collector
     int running;
     long failures, observed;
     string? sampleError;
-    readonly HashSet<ulong> dirty = new();
+    readonly ActiveFileTracker activeFiles = new();
+    long? lastActiveRefresh;
     public Collector(MonitorStore store, CollectorOptions options) : this(store, options, (journal, reference) => journal.Resolve(reference))
     {
     }
@@ -99,7 +101,8 @@ public sealed class Collector
     {
         if (Interlocked.Exchange(ref running, 1) != 0)
             throw new InvalidOperationException("Collector is already running");
-        dirty.Clear();
+        activeFiles.Clear();
+        lastActiveRefresh = null;
         activeJson = null;
         activeDegradedSince = null;
         activeGapAt = null;
@@ -273,7 +276,7 @@ public sealed class Collector
                                 // Scan metadata has already committed. Newer journal/active reads
                                 // follow it and share the active scan membership before reconciliation.
                                 next = CatchUp(journal, state, next, id, baseline, token);
-                                RefreshDirty(journal, token, id, baseline);
+                                RefreshActiveFiles(journal, token, id, baseline);
                                 return true;
                             }
                             catch (Exception exception)when (exception is Win32Exception or InvalidDataException or NotSupportedException)
@@ -348,7 +351,7 @@ public sealed class Collector
                     }
 
                 if (journal is not null)
-                    RefreshDirty(journal, token);
+                    RefreshActiveFiles(journal, token);
                 Status("运行中");
                 await Task.Delay(options.JournalInterval ?? TimeSpan.FromSeconds(5), token);
             }
@@ -453,11 +456,11 @@ public sealed class Collector
 
         try
         {
-            if (new FileInfo(path).Length > 131072)
+            if (new FileInfo(path).Length > 256 * 1024)
                 throw new InvalidDataException("Active set file exceeds bound");
             var json = File.ReadAllText(path);
             var state = JsonSerializer.Deserialize<ActiveState>(json) ?? throw new InvalidDataException("Invalid active set");
-            if (string.IsNullOrWhiteSpace(state.VolumeId) || state.References is null || state.References.Length > 4096 || state.DegradedSince > DateTimeOffset.Now || state.BootSession?.Length > 128)
+            if (string.IsNullOrWhiteSpace(state.VolumeId) || state.References is null || state.References.Length > ActiveFileTracker.Capacity || state.DegradedSince > DateTimeOffset.Now || state.BootSession?.Length > 128)
                 throw new InvalidDataException("Active set structure is invalid or exceeds bound");
             if (bootSession is not null && state.BootSession is not null && bootSession != state.BootSession)
             {
@@ -470,7 +473,8 @@ public sealed class Collector
 
             if (state.VolumeId == volume && state.JournalId == journal)
             {
-                dirty.UnionWith(state.References);
+                foreach (var reference in state.References)
+                    activeFiles.TryTrack(reference, null, 0);
                 activeJson = json;
                 activeDegradedSince = state.DegradedSince;
                 activeGapAt = activeDegradedSince is null ? null : DateTimeOffset.Now;
@@ -488,7 +492,7 @@ public sealed class Collector
 
     void PersistActive(string volume, ulong journal)
     {
-        var json = JsonSerializer.Serialize(new ActiveState(volume, journal, dirty.Order().ToArray(), bootSession, activeDegradedSince));
+        var json = JsonSerializer.Serialize(new ActiveState(volume, journal, activeFiles.References.Order().ToArray(), bootSession, activeDegradedSince));
         if (json == activeJson)
             return;
         var path = store.DatabasePath + ".active.json";
@@ -504,21 +508,33 @@ public sealed class Collector
         activeJson = json;
     }
 
-    void RefreshDirty(UsnJournal journal, CancellationToken token, string? scanId = null, bool baseline = false)
+    void RefreshActiveFiles(UsnJournal journal, CancellationToken token, string? scanId = null, bool baseline = false)
     {
+        var now = Stopwatch.GetTimestamp();
+        if (lastActiveRefresh is { } previous && Stopwatch.GetElapsedTime(previous, now) < (options.JournalInterval ?? TimeSpan.FromSeconds(5)))
+            return;
+        lastActiveRefresh = now;
+
+        var removed = false;
         var batch = new List<FileObservation>(options.BatchSize);
-        foreach (var reference in dirty.ToArray())
+        foreach (var reference in activeFiles.SelectForRefresh(now))
         {
             token.ThrowIfCancellationRequested();
             if (Paused)
                 break;
+            long? allocatedBytes = null;
             try
             {
                 var item = Scope(observe(journal, reference));
-                if (item.Paths.Count > 0)
-                    batch.Add(item);
-                else
-                    dirty.Remove(reference);
+                if (item.Paths.Count == 0)
+                {
+                    activeFiles.Remove(reference);
+                    removed = true;
+                    continue;
+                }
+
+                batch.Add(item);
+                allocatedBytes = item.AllocatedBytes;
             }
             catch (Exception exception)when (exception is Win32Exception or IOException or UnauthorizedAccessException)
             { /* No FILE_DELETE evidence: preserve the index until journal/reconciliation. */
@@ -526,6 +542,7 @@ public sealed class Collector
                 store.AddCoverageGap("metadata-unavailable", exception.Message, DateTimeOffset.Now);
             }
 
+            activeFiles.Refreshed(reference, allocatedBytes, now);
             if (batch.Count >= options.BatchSize)
             {
                 store.ApplyBatch(batch, [], DateTimeOffset.Now, true, baseline: baseline, scanId: scanId);
@@ -535,6 +552,8 @@ public sealed class Collector
 
         if (batch.Count > 0)
             store.ApplyBatch(batch, [], DateTimeOffset.Now, true, baseline: baseline, scanId: scanId);
+        if (removed)
+            PersistActive(journal.VolumeId, activeJournal);
     }
 
     long CatchUp(UsnJournal journal, JournalState state, long next, string? scanId, bool baseline, CancellationToken token)
@@ -569,10 +588,8 @@ public sealed class Collector
                     ((reason & 0x100) != 0 ? created : known).Add(item);
                     observed++;
                     if ((group.Last().Reason & 0x80000000) != 0)
-                        dirty.Remove(group.Key);
-                    else if (dirty.Contains(group.Key) || dirty.Count < 4096)
-                        dirty.Add(group.Key);
-                    else
+                        activeFiles.Remove(group.Key);
+                    else if (!activeFiles.TryTrack(group.Key, item.AllocatedBytes, Stopwatch.GetTimestamp()))
                     {
                         store.AddCoverageGap("dirty-overflow", "Active writer set exceeded bound; scan requested", DateTimeOffset.Now);
                         DegradeActive("Active writer set exceeded bound");
@@ -583,7 +600,7 @@ public sealed class Collector
                     if ((reason & 0x200) != 0 && e.NativeErrorCode is 2 or 3 or 87)
                     {
                         deleted.Add(journal.FileId(group.Key));
-                        dirty.Remove(group.Key);
+                        activeFiles.Remove(group.Key);
                     }
                     else if (options.FixtureScanRoot is null && e.NativeErrorCode is not (2 or 3))
                     {
@@ -596,9 +613,7 @@ public sealed class Collector
                     failures++;
                     store.AddCoverageGap("metadata-unavailable", exception.Message, DateTimeOffset.Now);
                     // Retain a bounded retry candidate; an observation race is not deletion evidence.
-                    if (dirty.Contains(group.Key) || dirty.Count < 4096)
-                        dirty.Add(group.Key);
-                    else
+                    if (!activeFiles.TryTrack(group.Key, null, Stopwatch.GetTimestamp()))
                         DegradeActive("Active writer retry set exceeded bound");
                 }
             }
