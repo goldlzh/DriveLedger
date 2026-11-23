@@ -1,5 +1,6 @@
 using DriveLedger.Core;
 using DriveLedger.Windows;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json.Nodes;
 
@@ -18,6 +19,48 @@ static class FinalIntegrationTests
     static void Run(Collector c, Action action) { using var stop = new CancellationTokenSource(); var task = Task.Run(() => c.RunAsync(stop.Token)); try { action(); } finally { stop.Cancel(); task.GetAwaiter().GetResult(); } }
     public static void Register(List<(string, Action)> tests)
     {
+        tests.Add(("new and growing writers get high-frequency slots and stable writers still rotate", () =>
+        {
+            var files = new ActiveFileTracker();
+            var high = (ulong)ActiveFileTracker.HighFrequencyCapacity;
+            var now = Stopwatch.Frequency;
+            for (ulong id = 1; id <= high; id++)
+            {
+                Check(files.TryTrack(id, 4096, now), "could not track initial writer");
+                files.Refreshed(id, 4096, now);
+            }
+
+            Check(files.TryTrack(1, 0, now), "could not record released allocation");
+            Check(files.TryTrack(2, 1024 * 1024, now), "could not record growing writer");
+            Check(files.TryTrack(high + 1, 4096, now), "could not track new writer");
+            var selected = files.SelectForRefresh(now);
+            Check(selected.Take((int)high).Contains(high + 1), "new writer did not get a high-frequency slot");
+            Check(selected.Take((int)high).Contains(2UL), "high-growth writer lost its slot");
+            Check(selected.Skip((int)high).SequenceEqual(new[] { high }), "stable writer did not move to low frequency");
+            files.Refreshed(high + 1, 4096, now);
+            Check(files.TryTrack(high, 2 * 1024 * 1024, now), "could not update low-frequency writer");
+            Check(files.SelectForRefresh(now).Take((int)high).Contains(high), "low-frequency writer did not regain priority");
+
+            files.Clear();
+            for (ulong id = 1; id <= ActiveFileTracker.Capacity; id++)
+            {
+                Check(files.TryTrack(id, 4096, now), "tracker rejected an in-capacity writer");
+                files.Refreshed(id, 4096, now);
+            }
+            Check(!files.TryTrack(ActiveFileTracker.Capacity + 1, 4096, now), "tracker accepted an over-capacity writer");
+            var visited = new HashSet<ulong>();
+            for (var round = 0; round < 6; round++)
+            {
+                now += Stopwatch.Frequency * 5;
+                selected = files.SelectForRefresh(now);
+                Check(selected.Length < ActiveFileTracker.Capacity, "all files were refreshed in the same round");
+                visited.UnionWith(selected);
+                foreach (var id in selected)
+                    files.Refreshed(id, 4096, now);
+            }
+            Check(visited.Count == ActiveFileTracker.Capacity, "stable low-frequency writers did not all get a turn");
+        }));
+
         tests.Add(("routine reconciliation survives successive restarts and missed deadline", () => Fixture((p, s) =>
         {
             File.WriteAllBytes(Path.Combine(p, "marker"), new byte[4096]);
@@ -95,9 +138,10 @@ static class FinalIntegrationTests
                     if (item.Paths.Any(x => x == Path.Combine(p, "held")) && Interlocked.Exchange(ref armed, 0) == 1)
                     {
                         if (trigger == "journal-loss") throw new NotSupportedException("injected lost runtime journal page");
-                        var dirty = (HashSet<ulong>)typeof(Collector).GetField("dirty", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c)!;
-                        dirty.Clear();
-                        for (ulong n = 0; n < 4096; n++) dirty.Add(ulong.MaxValue - n);
+                        var activeFiles = (ActiveFileTracker)typeof(Collector).GetField("activeFiles", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(c)!;
+                        activeFiles.Clear();
+                        for (ulong n = 0; n < ActiveFileTracker.Capacity; n++)
+                            Check(activeFiles.TryTrack(ulong.MaxValue - n, null, 0), "could not seed full active set");
                         if (trigger == "retry-overflow") throw new IOException("injected retry overflow");
                     }
                     return item;
@@ -107,8 +151,8 @@ static class FinalIntegrationTests
                 Run(c, () =>
                 {
                     Wait(() => s.ReadCollectorStatus().BaselineReady); Volatile.Write(ref armed, 1); writer.Write(new byte[8192]); writer.Flush(true);
-                    Wait(() => Volatile.Read(ref armed) == 0); Thread.Sleep(300);
-                    Check(s.ReadCollectorStatus().State == "降级运行", "runtime loss reported healthy");
+                    Wait(() => Volatile.Read(ref armed) == 0);
+                    Wait(() => s.ReadCollectorStatus().State == "降级运行");
                     var active = JsonNode.Parse(File.ReadAllText(s.DatabasePath + ".active.json"))!;
                     Check(active["DegradedSince"] is not null, "degradation not durable");
                     using var journal = new UsnJournal("C:\\");
